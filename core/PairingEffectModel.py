@@ -293,6 +293,25 @@ class PairingEffectModel(DiffConditionModel):
 
         return mean_f, var_f, mean_r, var_r, lower_interval_f, upper_interval_f, lower_interval_r, upper_interval_r
 
+    def __normalize_gene_data(
+        self,
+        data
+    ):
+        """Given a pd.DataFrame with a column 'y' containing
+        the gene expression data, it returns the pd.DataFrame
+        where the columns 'y' is normalized
+
+        Args:
+            data (pd.DataFrame): pd.DataFrame to normalize
+
+        Returns:
+            pd.DataFrame: normalized pd.DataFrame
+        """
+        mu, sigma = np.mean(data['y']), np.std(data['y'])
+        data['y'] = (data['y']-mu)/sigma
+
+        return data, mu, sigma
+
     def plot(self, title=None):
         time_pred = self.__get_time_pred()
         time_predN = time_pred.reshape((-1, 1))

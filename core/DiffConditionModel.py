@@ -39,33 +39,73 @@ matplotlib.rc('axes', titlesize=24)
 matplotlib.rc('xtick', labelsize=24)
 matplotlib.rc('ytick', labelsize=24)
 
+'''
+Definition of the base class which will be the base
+for the pairing effect model and the base model
+'''
 class DiffConditionModel:
-    def __init__(self, gene_data, gene_name, timepoints, conditions, n_replicates
-                , models_folder="./models", hyperparams_iter=5):
+    def __init__
+        self,
+        gene_data: pd.DataFrame,
+        gene_name: str,
+        timepoints: np.array,
+        conditions: list,
+        n_replicates: int,
+        models_folder="./models": str,
+        hyperparams_iter=5: int,
+    ):
+        """
+        Arguments:
+            gene_data {pd.DataFrame} -- gene data in a pandas DataFrame format
+            gene_name {str} -- the name of the gene that will be diplayed in the plots
+            timepoints {np.array} -- list of timepoints used in the gene expression time-series
+                These need to match with the timepoints in the columns name notation 
+                for gene_data
+            conditions {list} -- list of the conditions (or tretments) in the data.
+                The conditions need to be listed with the same name used in the columns name 
+                notation for gene_data
+            n_replicates {int} -- total number of replicates used in gene_data.
+                These need to match with the number of replicates reported in the columns
+                name notation for gene_data
+            models_folder {str} -- path to the folder where the model files will be saved
+            hyperparams_iter {int} -- number of times the hyperparameter optimization
+                will be run during the model fit
+        """
         self.__conditions = conditions
+        # we generate here the list of all the possible partitiions
+        # of the condition set
         self.__partitions = list(partition(conditions))
+        # to speed up the computation we create a dictionary
+        # where we assign a unique id to each condition
         self.__conditions_dict = self.__get_conditions_dict(conditions)
+        # we create a more descriptive version of the gene_data
+        # where we store replicate number, condition and timepoint
+        # in separate columns to speed up the computation
         self.__gene_data = self.__augment_gene_data(gene_data)
-
         self.__gene_name = gene_name
         self.__timepoints = timepoints
-
         self.__hyperparams_iter = hyperparams_iter
         self.__n_replicates = n_replicates
 
+        # if the model folder doesn't exist
+        # we create it
         if not os.path.exists(models_folder):
             os.makedirs(models_folder)
         self.__models_folder = models_folder
 
-        self.__use_stored=False
+        # Decide whether to use the already stored
+        # models to select the best model or to delete
+        # them and (re-)building them
+        self.__use_stored=False        
+        # RBF Kernel can be run on GPU with GPy
         self.__use_gpu=False
         
-        self.__mll = None
-        self.__partition = None
-        self.__models = None
-
+        # we will store here the ranking of the 
+        # models for each of the possible partitions
+        # of the condition set
         self.partitions_ranking = None
 
+        # colors settings to display 
         #self.colors = ["#00334e", "#801336", "#12d3cf", "#f18c8e", "k", "r"]
         self.__colors = ["#00334e", "#801336", "#12d3cf", "#f18c8e", "k", "r"]
         self.__subcolors = [
@@ -77,62 +117,63 @@ class DiffConditionModel:
         ]
         self.__repcolors = ["#bfcd7e", "#4592af", "#a34a28", "#e3c4a8", "#6c5ce7", "#474141"]
         self.__markers = ["o", "x", "*", "d", "+", "v", "^", "s", "<", "."]
+
+        # number of points to create between timepoint[0] and 
+        # timepoints[-1] to visualize the predictions
         self.__TIME_PRED_LEN = 100
 
-    def get_models(self):
-        return self.__models
-    
-    def get_partition(self):
-        return self.__partition
-    
-    def get_score(self):
-        return  self.__mll
-    
+
     def get_gene_data(self):
         return self.__gene_data
+
 
     @abstractmethod
     def fit(self):
         pass
-        
-    def __gp_unit(self, X, y, kernel, normalizer=False):
+
+       
+    def __gp_unit(
+        self,
+        X: np.array,
+        y: np.array,
+        kernel: GPy.kern.Kern,
+        normalizer=False: bool,
+    ) -> (GPy.models.GPRegression, float):
+        """Given the timepoints X and the gene expression
+        data for one gene y, then fit a GP regression model
+        with the given kernel.
+
+        Args:
+            X (np.array): timepoints for the gene expression time series
+            y (np.array): gene expression time series data
+            kernel (GPy.kern.Kern): kernel to use in the GP regression model
+            normalizer (bool, optional): Normalizer to be passed to GPy.models.GPRegression. Defaults to False.
+
+        Returns:
+            (GPy.models.GPRegression, float): the fitted model and the optimal log marginal likelihood
+        """
         gp = GPy.models.GPRegression(X, y, kernel, normalizer=normalizer)
         gp.optimize_restarts(num_restarts=self.__hyperparams_iter, verbose=False)
         score = gp.log_likelihood()
         return gp, score
 
-    def __generate_partition_number(self, partition):
-        partition_num = []
-        for i, subset in enumerate(list(partition)):
-            condition_no = [self.__conditions_dict[condition] for condition in subset]
-            subset_data = self.__gene_data[self.__gene_data['c'].isin(condition_no)]
-            tmp = np.repeat(i + 1, len(subset_data))
-            #tmp = np.repeat(i + 1, len(self.__timepoints) * self.__n_replicates * len(subset))
 
-            #print(tmp.shape)
-            #print(len(self.__timepoints), self.__n_replicates, len(subset))
-            partition_num.append(tmp)
-        partition_num = np.concatenate(partition_num)
-        return partition_num
-
-    def __normalize_gene_data(self, data):
-        mu, sigma = np.mean(data['y']), np.std(data['y'])
-        data['y'] = (data['y']-mu)/sigma
-
-        return data, mu, sigma
-
-    def get_conditions_data(self, subset, normalize=False):
-        '''  
-        Filter data to return only the data related to subset
+    def get_conditions_data(
+        self,
+        subset: list,
+        normalize=False : bool,
+    ) -> (pd.DataFrame, float, float) :
+        '''Filter data to return only the data related to subset
         This function also applies the proper transformation to the data
-        :param subset: subset of conditions to filter
-        :param timewarping: whether to use timewarping or not 
-        :param a,b: beta cdf parameter, to be set only if beta cdf has been used
-        :return: X: time
-                 y: log normalized data
-                 mu: mean of the log transformed data
-                 sigma: standard deviation of the transformed data
-                 columns: columns selected from data
+        
+        Args:
+            subset {list} -- subset of conditions to filter
+            normalize {bool} -- whether to normalize the data or nott
+        
+        Returns:
+            (pd.DataFrame, float, float): normalized dataset, mean and variance 
+                used in the normalization
+        
         '''
         conditions_idx = [self.__conditions_dict[condition] for condition in subset]
         data = self.__gene_data[self.__gene_data['c'].isin(conditions_idx)]
@@ -148,59 +189,31 @@ class DiffConditionModel:
 
         return data, mu, sigma
 
-    def __get_time_pred(self):
+
+    def __get_time_pred(self) -> np.array:
+        """Calculate the list of timepoints for calculating
+        predictions. We use numpy.linspace to get self.__TIME_PRED_LEN
+        timepoints equally spaced from the first timepoints to the last.
+
+        Returns:
+            np.array: list of timepoints for calculating predictions
+        """
+
+        # if we are using the timewarping then we need to apply it to 
+        # the timepoints for the predictions as well
         if self.__timewarping:
-            #return np.linspace(time_warping(self.timepoints[0]), time_warping(self.timepoints[-1]), self.TIME_PRED_LEN)
-            #tmp = time_warping(self.__timepoints[0])
-            #print(tmp)
-            #tmp = np.linspace(time_warping(self.__timepoints[0]), time_warping(self.__timepoints[-1]), self.__TIME_PRED_LEN)
-            #print(tmp)
-            return np.linspace(time_warping(self.__timepoints[0]), time_warping(self.__timepoints[-1]), self.__TIME_PRED_LEN)
+            return np.linspace(
+               time_warping(self.__timepoints[0]),
+               time_warping(self.__timepoints[-1]),
+               self.__TIME_PRED_LEN
+            )
         else:
-            return np.linspace(self.__timepoints[0], self.__timepoints[-1], self.__TIME_PRED_LEN)
+            return np.linspace(
+                self.__timepoints[0],
+                self.__timepoints[-1],
+                self.__TIME_PRED_LEN
+            )
 
-    def __exact_prediction_full(self, X, y, time_pred, full_kern, noise, partition):
-        Xnew, Xnew_partition_num, Xnew_replicate_num = self.__generate_Xnew(time_pred, partition)
-        K_XX = full_kern.K(X)
-
-        if noise==0:
-            alpha=np.linalg.inv(K_XX + 1e-5 * np.eye(X.shape[0]))
-        else:
-            alpha = np.linalg.inv(K_XX + noise * np.eye(X.shape[0]))
-
-        K_XnewX = full_kern.K(X, X2=Xnew, X2_subset_num=Xnew_partition_num, X2_rep_num=Xnew_replicate_num)
-        K_XnewXnew = full_kern.K(Xnew, X2=Xnew, X2_subset_num=Xnew_partition_num, X2_rep_num=Xnew_replicate_num,
-                                 X_subset_num=Xnew_partition_num, X_rep_num=Xnew_replicate_num)
-        mean = K_XnewX.T.dot(alpha).dot(y)
-        var = K_XnewXnew - K_XnewX.T.dot(alpha).dot(K_XnewX)
-
-        return mean, np.diag(var)
-
-    def __exact_prediction_rep(self, X, y, time_pred, full_kern, noise, partition):
-        Xnew, Xnew_partition_num, Xnew_replicate_num = self.__generate_Xnew(time_pred, partition)
-        K_XX , Krep_XX = full_kern.compute_K_Krep(X)
-
-        K_XnewX, Krep_XnewX = full_kern.compute_K_Krep(X, X2=Xnew, X2_subset_num=Xnew_partition_num, X2_rep_num=Xnew_replicate_num)
-        K_XnewXnew, Krep_XnewXnew = full_kern.compute_K_Krep(Xnew, X2=Xnew, X2_subset_num=Xnew_partition_num, X2_rep_num=Xnew_replicate_num,
-                                 X_subset_num=Xnew_partition_num, X_rep_num=Xnew_replicate_num)
-
-        if noise==0:
-            alpha=np.linalg.inv(K_XX + Krep_XX + 1e-5 * np.eye(X.shape[0]))
-        else:
-            alpha = np.linalg.inv(K_XX + Krep_XX + noise * np.eye(X.shape[0]))
-
-        mean_f = K_XnewX.T.dot(alpha).dot(y)
-        var_f = K_XnewXnew - K_XnewX.T.dot(alpha).dot(K_XnewX)
-
-        mean_r = Krep_XnewX.T.dot(alpha).dot(y)
-        var_r = Krep_XnewXnew - Krep_XnewX.T.dot(alpha).dot(Krep_XnewX)
-
-        return mean_f, np.diag(var_f), mean_r, np.diag(var_r)
-
-    def __exact_prediction_quantiles(self, var):
-        quantiles = (2.5, 97.5)
-        #return [stats.norm.ppf(q/100.)*np.sqrt(var + sigma2) for q in quantiles]
-        return [stats.norm.ppf(q / 100.) * np.sqrt(var) for q in quantiles]
 
     def __generate_Xnew(self, time_pred, partition):
         Xnew = np.tile(time_pred, len(partition) * self.__n_replicates)
@@ -222,16 +235,6 @@ class DiffConditionModel:
         Xnew = np.concatenate((Xnew, Xnew_replicate_num), axis=1)
         return Xnew, Xnew_partition_num, Xnew_replicate_num
 
-    def __full_predictions(self, data, time_pred, gaussian_noise):
-        X = data[["X", "r"]].values
-        y = data[["y"]].values
-        mean, var = self.__exact_prediction_full(X, y, time_pred, self.__pair_models.kern
-                                                 , gaussian_noise, self.__pair_partition)
-
-        lower_interval, upper_interval = self.__exact_prediction_quantiles(var)
-        lower_interval, upper_interval = lower_interval.flatten(), upper_interval.flatten()
-
-        return mean, var, lower_interval, upper_interval
 
     def __full_splitted_prediction(self, data, time_pred, gaussian_noise):
         X = data[["X", "r"]].values
@@ -249,9 +252,25 @@ class DiffConditionModel:
 
         return mean_f, var_f, mean_r, var_r, lower_interval_f, upper_interval_f, lower_interval_r, upper_interval_r
 
+
     @abstractmethod
     def plot(self):
         pass
+
+    def __generate_partition_number(self, partition):
+        partition_num = []
+        for i, subset in enumerate(list(partition)):
+            condition_no = [self.__conditions_dict[condition] for condition in subset]
+            subset_data = self.__gene_data[self.__gene_data['c'].isin(condition_no)]
+            tmp = np.repeat(i + 1, len(subset_data))
+            #tmp = np.repeat(i + 1, len(self.__timepoints) * self.__n_replicates * len(subset))
+
+            #print(tmp.shape)
+            #print(len(self.__timepoints), self.__n_replicates, len(subset))
+            partition_num.append(tmp)
+        partition_num = np.concatenate(partition_num)
+        return partition_num
+
 
     def plot_data(self, timewarping=False, logexpr=False):
         data, _, _ = self.get_conditions_data(self.__conditions)
@@ -340,12 +359,14 @@ class DiffConditionModel:
         plt.tight_layout()
         plt.show()
 
+
     def __get_conditions_dict(self, conditions):
         conditions_dict = {}
         for i, c in enumerate(conditions):
-            conditions_dict[c] = i +1
+            conditions_dict[c] = i + 1
 
         return conditions_dict
+
 
     def __augment_gene_data(self, gene_data):
         if isinstance(gene_data, pd.DataFrame):
@@ -369,6 +390,7 @@ class DiffConditionModel:
         df = pd.DataFrame(np.concatenate((X, c, r, y), axis=1), columns=["X", "c", "r", "y"]).sort_values(["c", "X"])
         return df
 
+
     def __get_model_file_name(self, subset, pairing=False):
         name = self.__models_folder + "/" + self.__gene_name + "/"
 
@@ -381,6 +403,7 @@ class DiffConditionModel:
             name += "_pairing"
         name += ".pkl"
         return name
+
 
     def __delete_models(self):
         for the_file in os.listdir(self.__models_folder):
