@@ -42,30 +42,52 @@ from DiffConditionModel import DiffConditionModel
 
 class PairingEffectModel(DiffConditionModel):
     def __init__(
-        self,
-        gene_data,
-        gene_name,
-        timepoints,
-        conditions,
-        n_replicates,
-        models_folder="./models",
-        hyperparams_iter=5
+        *args, 
+        **kwargs
     ):
-        super().__init__()
+        super(PairingEffectModel, self).__init__(*args, **kwargs)
 
+        # we define here the hyperprior distributions for the 
+        # pairing effect model. Refer to GPy documentation https://gpy.readthedocs.io/en/deploy/GPy.kern.src.html
+        # for the underlying formulas.
+        # Prior distribution for the lengthscale parameter of
+        # the response effect kernel
         self.prior_distribution_f_ls = GPy.priors.LogGaussian(0.5,0.5)
+        # Prior distribution for the lengthscale parameter of
+        # the pairing effect kernel
         self.prior_distribution_g_ls = GPy.priors.LogGaussian(0,0.5)
+        # Prior distribution for the variance parameter of
+        # the pairing effect kernel
         self.prior_distribution_g_var = GPy.priors.Exponential(2)
         # prior_distribution_f_var = GPy.priors.LogGaussian(0.2, 0.5)
 
     def fit(
         self,
-        timewarping=True,
-        k_prior = False,
-        use_stored=False,
-        use_gpu=False,
-        verbose=True, 
+        timewarping=True: bool,
+        k_prior=False: bool,
+        use_stored=False: bool,
+        use_gpu=False: bool,
+        verbose=True: bool, 
     ):
+        """Model selection process for the Pairing effect model
+        Each partition of the condition set is assessed and
+        the best partition is stored in the class attributes:
+            - self.__pair_mll: marginal likelihood value
+            - self.__pair_models: the models that are part of the partition
+            - self.__pair_partition: the best partition selected
+
+        Args:
+            timewarping (bool, optional): Apply log-timewarping on the time points.
+                Defaults to True:bool.
+            k_prior (bool, optional): Apply the kerenel hyperprior distributions 
+                presented in the constructor of the class. Defaults to False:bool.
+            use_stored (bool, optional): If the model selection process has already
+                been performed, then one can just load the results. Defaults to False:bool.
+            use_gpu (bool, optional): The Gaussian kernel used in this application
+                allow to perform the computations also on GPU. Defaults to False:bool.
+            verbose (bool, optional): Used to log more information during the model
+                selection process in the terminal. Defaults to True:bool.
+        """
         self.__timewarping = timewarping
         self.__use_stored = use_stored
         self.__use_gpu = use_gpu
@@ -78,6 +100,7 @@ class PairingEffectModel(DiffConditionModel):
             import time
             start = time.time()
 
+        # Iteration over all the possible partitions of the condition set
         partition_models_pair = []
         for p in tqdm(self.__partitions, disable=(not verbose)):
             models, mll = self.gp_pairing_fit(
@@ -101,14 +124,29 @@ class PairingEffectModel(DiffConditionModel):
             stop = time.time()
             print("Model fitting time:", stop-start)
 
-    def pairing_data(self, partition):
+    def pairing_data(
+        self,
+        partition: list[list[str]],
+    ):
+        """Specific function to preparate data for the pairing effect model
+        Normalization of the data is also applied and the mean and std used
+        for the transformation are returned.
+
+        Args:
+            partition (list[list[str]]): a partition of the condition set
+
+        Returns:
+            (pd.DataFrame, float, float): (transformed data, data mean, data std)
+        """
         data, _, _ = self.get_conditions_data(self.__conditions)
 
         ordered_data = pd.DataFrame([], columns=data.columns)
         ordered_conditions = []
         for subset in partition:
             for condition in subset:
-                ordered_data = ordered_data.append(data[data['c'] == self.__conditions_dict[condition]])
+                ordered_data = ordered_data.append(
+                    data[data['c'] == self.__conditions_dict[condition]]
+                )
         data = ordered_data
 
         partition_num = self.__generate_partition_number(partition)
@@ -119,65 +157,126 @@ class PairingEffectModel(DiffConditionModel):
 
         return data, mu, sigma
 
-    def __generate_pairing_kernel(self, data, partition, k_prior, centered_pairing_kern, pairing_eff_var_prior=None):
+    def __generate_pairing_kernel(
+        self,
+        data: pd.DataFrame,
+        partition: list[list[str]],
+        k_prior: bool,
+    ):
+        """Generate the Pairing effect model kernels to be used
+        to fir the pairing effect model to a specific partition
+        of the condition set.
+
+        Args:
+            data (pd.DataFrame): gene expression data
+            partition (list[list[str]]): a partition of the condition set
+            k_prior (bool): to apply the hyper-prior distributions for the
+                pairing effect model kernel parameters
+
+        Returns:
+            PairingEffectKernel: kernel to be used to fit the pairing effect model
+        """
+
+        # some preparation of the data
         partition_num = self.__generate_partition_number(partition)
         partition_mat_list = get_partition_mat(partition_num)
-        rep_mat_list, specular_rep_mat_list = get_partition_mat(data['r'].values, get_specular=True)
+        rep_mat_list, specular_rep_mat_list = get_partition_mat(
+            data['r'].values,
+            get_specular=True
+        )
 
+        # create the response kernel
+        # one for each subset in the partition
         rbf_f = []
         for i in range(len(partition)):
-            k = GPy.kern.RBF(input_dim=1, useGPU=self.__use_gpu, name="f" + str(i))
+            k = GPy.kern.RBF(
+                input_dim=1,
+                useGPU=self.__use_gpu,
+                name="f" + str(i)
+            )
             if k_prior:
-                k.lengthscale.set_prior(self.prior_distribution_f_ls, warning=False)
+                # apply the hyper-prior distribution
+                k.lengthscale.set_prior(
+                    self.prior_distribution_f_ls,
+                    warning=False
+                )
             #k.variance.set_prior(prior_distribution_f_var)
             rbf_f.append(k)
 
-        # if single_g_kern:
-        rbf_g = GPy.kern.RBF(input_dim=1, useGPU=self.__use_gpu, name='g')
-        if k_prior:
-            if pairing_eff_var_prior == None:
-                rbf_g.variance.set_prior(self.prior_distribution_g_var, warning=False)
-            else:
-                rbf_g.variance.set_prior(GPy.priors.Exponential(pairing_eff_var_prior), warning=False)
-            rbf_g.lengthscale.set_prior(self.prior_distribution_g_ls, warning=False)
-        kernel = PairingEffectKernel([rbf_f, rbf_g], partition_num, data['r'].values, partition_mat_list,
-                                     rep_mat_list, self.__n_replicates, specular_rep_mat_list=specular_rep_mat_list
-                                     , centered_kernel=centered_pairing_kern)
+        # create the pairing effect kernel
+        rbf_g = GPy.kern.RBF(
+            input_dim=1,
+            useGPU=self.__use_gpu,
+            name='g'
+        )
+        if k_prior: 
+            # apply the hyper-prior distributions
+            rbf_g.variance.set_prior(
+                self.prior_distribution_g_var,
+                warning=False
+            )            
+            rbf_g.lengthscale.set_prior(
+                self.prior_distribution_g_ls,
+                warning=False
+            )
+
+        kernel = PairingEffectKernel(
+            [rbf_f, rbf_g],
+            partition_num,
+            data['r'].values,
+            partition_mat_list,
+            rep_mat_list,
+            self.__n_replicates,
+            specular_rep_mat_list=specular_rep_mat_list,
+        )
         return kernel
 
-    def gp_pairing_fit(self, partition, k_prior=False
-                       , centered_pairing_kern=False, pairing_eff_var_prior=None):
+    def gp_pairing_fit(
+        self,
+        partition: list[list[str]],
+        k_prior=False,
+    ):
+        """Function that fits the Pairing effect model on 
+        a specific partition of the condition set
+
+        Args:
+            partition (list[list[str]]): a partition of the condition set
+            k_prior (bool, optional): to apply the hyper-prior distributions for the
+                pairing effect model kernel parameters. Defaults to False.
+
+        Returns:
+            (GPy.models.GPRegression, float): (fitted pairing effect model, 
+                marginal likelihood)
+        """
         data, _, _ = self.pairing_data(partition)
         kernel = self.__generate_pairing_kernel(
             data,
             partition,
             k_prior,
-            centered_pairing_kern,
-            pairing_eff_var_prior = pairing_eff_var_prior,
         )
 
         X = data[['X', 'r']].values
         y = data[['y']].values
 
         gp, score = self.__gp_unit(X, y, kernel)
-
-        #score = self.log_marginal_likelihood(gp, X, y, partition)
-
         return gp, score
 
-    def get_conditions_data(self, subset, normalize=False):
-        '''  
-        Filter data to return only the data related to subset
-        This function also applies the proper transformation to the data
-        :param subset: subset of conditions to filter
-        :param timewarping: whether to use timewarping or not 
-        :param a,b: beta cdf parameter, to be set only if beta cdf has been used
-        :return: X: time
-                 y: log normalized data
-                 mu: mean of the log transformed data
-                 sigma: standard deviation of the transformed data
-                 columns: columns selected from data
-        '''
+    def get_conditions_data(
+        self,
+        subset: list[str],
+        normalize=False: bool,
+    ):
+        """Filter data to return only the data related to a subset
+        Also, normalization can be applied here on the data.
+
+        Args:
+            subset (list[str]): a subset of the a partition of the condition set
+            normalize (bool, optional): to apply the normalization of the data
+                Defaults to False.
+
+        Returns:
+            (pd.DataFrame, float, float): ()
+        """        
         conditions_idx = [self.__conditions_dict[condition] for condition in subset]
         data = self.__gene_data[self.__gene_data['c'].isin(conditions_idx)]
 
@@ -192,16 +291,6 @@ class PairingEffectModel(DiffConditionModel):
 
         return data, mu, sigma
 
-    def __get_time_pred(self):
-        if self.__timewarping:
-            #return np.linspace(time_warping(self.timepoints[0]), time_warping(self.timepoints[-1]), self.TIME_PRED_LEN)
-            #tmp = time_warping(self.__timepoints[0])
-            #print(tmp)
-            #tmp = np.linspace(time_warping(self.__timepoints[0]), time_warping(self.__timepoints[-1]), self.__TIME_PRED_LEN)
-            #print(tmp)
-            return np.linspace(time_warping(self.__timepoints[0]), time_warping(self.__timepoints[-1]), self.__TIME_PRED_LEN)
-        else:
-            return np.linspace(self.__timepoints[0], self.__timepoints[-1], self.__TIME_PRED_LEN)
 
     def __exact_prediction_full(self, X, y, time_pred, full_kern, noise, partition):
         Xnew, Xnew_partition_num, Xnew_replicate_num = self.__generate_Xnew(time_pred, partition)
@@ -312,179 +401,21 @@ class PairingEffectModel(DiffConditionModel):
 
         return data, mu, sigma
 
-    def plot(self, title=None):
+    def plot(
+        self,
+        noiseless=False: bool,
+        title=None: str,
+    ):
+        """Plot the results of the pairing effect model
+
+        Args:
+            noiseless (bool, optional): to plot the predictions without including
+                the Gaussian noise component of the GP model. Defaults to False:bool.
+            title (str, optional): Alternative title for the plot. Defaults to None:str.
+        """
         time_pred = self.__get_time_pred()
         time_predN = time_pred.reshape((-1, 1))
-
-        replicate_idx = pd.unique(self.__gene_data['r']).astype(int)
-
-        plt.figure(figsize=(16,7))
-        for i, subset in enumerate(self.__base_partition):
-            label = get_label(subset)
-
-            if self.__replicate_eff:
-                y_pred_mean_f, _ = self.__base_models[i].predict(time_predN, kern=self.__base_models[i].kern.f)
-                lower_interval, upper_interval = self.__base_models[i].predict_quantiles(time_predN,
-                                                                                         kern=self.__base_models[i].kern.f)
-            else:
-                y_pred_mean_f, y_pred_var_f = self.__base_models[i].predict(time_predN)
-                lower_interval, upper_interval = self.__base_models[i].predict_quantiles(time_predN)
-
-            y_pred_mean_f = y_pred_mean_f.reshape(len(y_pred_mean_f))
-
-            upper_interval = upper_interval.flatten()
-            lower_interval = lower_interval.flatten()
-
-            #upper_interval = np.exp(upper_interval)-1
-            #lower_interval = np.exp(lower_interval)-1
-
-            plt.plot(time_pred, upper_interval, color=self.__colors[i], linestyle="--")
-            plt.plot(time_pred, lower_interval, color=self.__colors[i], linestyle="--")
-            plt.fill_between(time_pred, lower_interval, upper_interval, color=self.__colors[i], alpha=0.05)
-
-            if self.__replicate_eff:
-                f, g = self.__base_models[i].kern.f, self.__base_models[i].kern.g
-                var_f = f.variance[0]
-                ls_f = f.lengthscale[0]
-                var_g = g.variance[0]
-                ls_g = g.lengthscale[0]
-                #label += "\n(var1=%.2f, ls1=%.2f)+(var2=%.2f, ls2=%.2f)" % (var_f, ls_f, var_g, ls_g)
-            else:
-                variance = self.__base_models[i].kern.to_dict()['variance'][0]
-                lengthscale = self.__base_models[i].kern.to_dict()['lengthscale'][0]
-                #label += '\n(alpha=%.2f , l=%.2f)' % (variance, lengthscale)
-
-            #y_pred_mean_f = np.exp(y_pred_mean_f)-1
-            #print("about to plot")
-            #print(time_pred)
-            #print(y_pred_mean_f)
-            plt.plot(time_pred, y_pred_mean_f, self.__colors[i], label=label)
-
-            data, _, _ = self.get_conditions_data(subset)  # , normalize=True)
-            for r_idx, r in enumerate(replicate_idx):
-                r_data = data[data["r"] == r]
-                plt.scatter(
-                    r_data["X"].values,
-                    r_data["y"].values,
-                    marker=self.__markers[r_idx],
-                    c=self.__colors[i],
-                    #label="replicate " + str(r),
-                )
-
-        if self.__timewarping:
-            plt.xlabel("log Time", fontsize=22)
-        else:
-            plt.xlabel("Time")
-        plt.ylabel("gene expression level (log(y+1))", fontsize=22)  # [log(y+1)]")
-
-        mll = "Marginal likelihood = %.2f" % self.__base_mll
-
-        if title is None:
-            plt.title("" + self.__gene_name + "")
-        else:
-            plt.title(title)
-        plt.legend(prop={'size': 24})
-        #plt.legend(prop={'size': 24}, bbox_to_anchor=(1.02, 1), loc='upper left', borderaxespad=0.)
-        plt.grid()
-        plt.tight_layout()
-        plt.savefig("gene_figures/" + self.__gene_name + "_base_model.jpg", format="jpg")
-
-        plt.show()
-
-        if self.__replicate_eff:
-            self.__plot_replicate_eff(time_pred, y_pred_mean_f)
-
-    def plot_data(self, timewarping=False, logexpr=False):
-        data, _, _ = self.get_conditions_data(self.__conditions)
-        partition_num = self.__generate_partition_number([[c] for c in self.__conditions])
-
-        replicate_idx = pd.unique(self.__gene_data['r']).astype(int)
-
-        data['s'] = partition_num
-        #data, mu, sigma = self.normalize_gene_data(data)
-        #print(mu)
-        data = data.sort_values(["s", "r"])
-
-        X = data[["X", "r"]]
-        y = data[["y"]]
-
-        #print(data)
-        plt.figure(figsize=(22, 8))
-        plt.subplot(121)
-        for i, subset in enumerate(self.__conditions):
-
-            #plt.subplot(len(self.conditions),1, i+1)
-            subset_data = data[data['s'] == (i + 1)]  # self.get_conditions_data(subset)
-            for r_idx, r in enumerate(replicate_idx):
-                r_data = subset_data[subset_data["r"] == r]
-                if logexpr:
-                    data_points = r_data["y"].values
-                else:
-                    data_points = np.exp(r_data["y"].values)-1
-
-                if timewarping:
-                    time_points = r_data["X"].values
-                else:
-                    time_points = np.exp(r_data["X"].values)
-
-                if r_idx==0:
-                    plt.scatter(
-                        time_points,
-                        data_points,
-                        marker=self.__markers[r_idx],
-                        c=self.__colors[i],
-                        label=str(subset)
-                    )
-                else:
-                    plt.scatter(
-                        time_points,
-                        data_points,
-                        marker=self.__markers[r_idx],
-                        c=self.__colors[i]
-                    )
-            #plt.grid()
-
-            plt.tight_layout()
-
-
-            plt.xlabel("Time (hours)")
-            plt.ylabel("Gene expression (read count)")
-            plt.legend(bbox_to_anchor=(0, 1), loc='upper left', ncol=1)
-            plt.grid()
-
-        if timewarping:
-            data["X"] = time_warping(data["X"])
-
-            X = data[["X", "r"]]
-            y = data[["y"]]
-
-            plt.subplot(122)
-            #plt.figure(figsize=(16, 8))
-            for i, subset in enumerate(self.__conditions):
-                # plt.subplot(len(self.conditions),1, i+1)
-                subset_data = data[data['s'] == (i + 1)]  # self.get_conditions_data(subset)
-                for r in range(self.__n_replicates):
-                    r_data = subset_data[subset_data["r"] == (r + 1)]
-                    data_points = np.exp(r_data["y"].values) - 1
-                    if r == 0:
-                        plt.scatter(r_data["X"].values, data_points, marker=self.__markers[r], c=self.__colors[i],
-                                    label=str(subset))
-                    else:
-                        plt.scatter(r_data["X"].values, data_points, marker=self.__markers[r], c=self.__colors[i])
-                # plt.grid()
-
-            # plt.tight_layout()
-            plt.xlabel("Time")
-            #plt.ylabel("Gene read count")
-            plt.legend(bbox_to_anchor=(0, 1), loc='upper left', ncol=1)
-            plt.grid()
-        plt.tight_layout()
-        plt.show()
-
-    def plot_pairing(self, noiseless=False, title=None):
-        time_pred = self.__get_time_pred()
-        time_predN = time_pred.reshape((-1, 1))
-        print("Marginal log likelihood = " + str(self.__pair_models.log_likelihood()))
+        #print("Marginal log likelihood = " + str(self.__pair_models.log_likelihood()))
 
         if noiseless:
             gaussian_noise = 0
@@ -497,10 +428,14 @@ class PairingEffectModel(DiffConditionModel):
         ordered_conditions = []
         for subset in self.__pair_partition:
             for condition in subset:
-                ordered_data = ordered_data.append(data[data['c'] == self.__conditions_dict[condition]])
+                ordered_data = ordered_data.append(
+                    data[data['c'] == self.__conditions_dict[condition]]
+                )
         data = ordered_data
 
-        partition_num = self.__generate_partition_number(self.__pair_partition)
+        partition_num = self.__generate_partition_number(
+            self.__pair_partition
+        )
 
         data['s'] = partition_num
         data, mu, sigma = self.__normalize_gene_data(data)
@@ -510,33 +445,95 @@ class PairingEffectModel(DiffConditionModel):
         X = data[["X", "r"]]
         y = data[["y"]]
 
-        mean, var, lower_interval, upper_interval = self.__full_predictions(data, time_pred, gaussian_noise)
+        mean, var, lower_interval, upper_interval = self.__full_predictions(
+            data,
+            time_pred,
+            gaussian_noise
+        )
 
         #self.__plot_base_plus_pairing(data, mu, sigma, time_pred, mean, lower_interval, upper_interval)
         #self.__plot_base_plus_pairing_allr(data, mu, sigma, time_pred, mean, lower_interval, upper_interval)
 
-        mean_f, var_f, mean_r, var_r, lower_interval_f, upper_interval_f, lower_interval_r, upper_interval_r = self.__full_splitted_prediction(data, time_pred, gaussian_noise)
+        mean_f, var_f, mean_r, _, low_f, up_f, low_r, up_r = self.__full_splitted_prediction(
+            data,
+            time_pred,
+            gaussian_noise
+        )
 
-        self.__plot_base(data, mu, sigma, time_pred, mean_f, var_f, lower_interval_f, upper_interval_f, title=title)
+        self.__plot_base(
+            data,
+            mu,
+            sigma,
+            time_pred,
+            mean_f,
+            var_f,
+            low_f,
+            up_f,
+            title=title
+        )
         #self.plot_base_separated(data, mu, sigma, time_pred, mean_f, var_f, lower_interval_f, upper_interval_f)
 
-        self.__plot_pairing_effect(data, mu, sigma, time_pred, mean_r, mean_f, lower_interval_r, upper_interval_r)
+        self.__plot_pairing_effect(
+            data,
+            mu,
+            sigma,
+            time_pred,
+            mean_r,
+            mean_f,
+            low_r,
+            up_r
+        )
         #K, K_rep = self.__plot_kernels(sigma, X.values)
         #return K, K_rep
 
-    def __plot_base(self, data, mu, sigma, time_pred, mean_f, var_f, lower_interval_f, upper_interval_f, title=None):
+    def __plot_base(
+        self,
+        data: pd.DataFrame§,
+        mu: float,
+        sigma: float,
+        time_pred: np.array,
+        mean_f: np.array,
+        var_f: np.array,
+        lower_interval_f: np.array,
+        upper_interval_f: np.array,
+        title=None: str
+    ):
+        """Plot the resulting response effect 
+
+        Args:
+            data (pd.DataFrame): gene expression data
+            mu (float): mean used to normalize the data before the model fit
+            sigma (float): std used to normalize the data before the model fit
+            time_pred (np.array): time points for the predictions
+            mean_f (np.array): mean of the response kernels predictions
+            var_f (np.array): variance of the response kernels predictions
+            lower_interval_f (np.array): 5th percentile of the response 
+                kernels predictions
+            upper_interval_f (np.array): 95th percentile of the response 
+                kernels predictions 
+            title (str, optional): Alternative title for the plot.
+                Defaults to None:str.
+        """
         plt.figure(figsize=(16,7))
         replicate_idx = pd.unique(data['r']).astype(int)
         for i in range(int(len(self.__pair_partition) * self.__n_replicates)):
             if (i % self.__n_replicates) == 0:
-                a, b = int(i * len(time_pred)), int((i + 1) * len(time_pred))
+                a = int(i * len(time_pred))
+                b = int((i + 1) * len(time_pred))
 
                 mean_f_subset = mean_f[a:b].reshape(b - a)
 
                 color_idx = i // self.__n_replicates
                 c = self.__colors[color_idx]
 
-                plt.plot(time_pred, (mean_f_subset*sigma) + mu, color=c, label=get_label(self.__pair_partition[color_idx]))
+                plt.plot(
+                    time_pred,
+                    (mean_f_subset*sigma) + mu,
+                    color=c,
+                    label=get_label(
+                        self.__pair_partition[color_idx]
+                    )
+                )
 
                 lower = mean_f_subset + lower_interval_f[a:b]
                 upper = mean_f_subset + upper_interval_f[a:b]
@@ -544,9 +541,25 @@ class PairingEffectModel(DiffConditionModel):
                 lower = (lower * sigma) + mu
                 upper = (upper * sigma) + mu
 
-                plt.plot(time_pred, lower, color=c, linestyle="--")
-                plt.plot(time_pred, upper, color=c, linestyle="--")
-                plt.fill_between(time_pred, lower, upper, color=c, alpha=0.05)
+                plt.plot(
+                    time_pred,
+                    lower,
+                    color=c,
+                    linestyle="--"
+                )
+                plt.plot(
+                    time_pred,
+                    upper,
+                    color=c,
+                    linestyle="--"
+                )
+                plt.fill_between(
+                    time_pred,
+                    lower,
+                    upper,
+                    color=c,
+                    alpha=0.05
+                )
 
         for i, subset in enumerate(self.__pair_partition):
             subset_data = data[data['s'] == (i + 1)]  # self.get_conditions_data(subset)
@@ -579,7 +592,31 @@ class PairingEffectModel(DiffConditionModel):
         plt.savefig("gene_figures/" + self.__gene_name + "_pair_model.jpg", format="jpg")
         plt.show()
 
-    def __plot_pairing_effect(self, data, mu, sigma, time_pred, mean_r, mean_f, lower_interval_r, upper_interval_r):
+    def __plot_pairing_effect(
+        self,
+        data: pd.DataFrame§,
+        mu: float,
+        sigma: float,
+        time_pred: np.array,
+        mean_r: np.array,
+        mean_f: np.array,
+        lower_interval_r: np.array,
+        upper_interval_r: np.array,
+    ):
+        """Plot the resulting pairing effect for each replicate
+
+        Args:
+            data (pd.DataFrame): gene expression data
+            mu (float): mean used to normalize the data before the model fit
+            sigma (float): std used to normalize the data before the model fit
+            time_pred (np.array): time points for the predictions
+            mean_f (np.array): mean of the response kernels predictions
+            var_f (np.array): mean of the pairing effect kernels predictions
+            lower_interval_r (np.array): 5th percentile of the pairing effect 
+                kernels predictions
+            upper_interval_r (np.array): 95th percentile of the pairing effect
+                kernels predictions             
+        """
         plt.figure(figsize=(16,7))
 
         #mean = ((mean_f+mean_r)*sigma)+mu
