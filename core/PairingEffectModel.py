@@ -63,6 +63,10 @@ class PairingEffectModel(DiffConditionModel):
         self.prior_distribution_g_var = GPy.priors.Exponential(2)
         # prior_distribution_f_var = GPy.priors.LogGaussian(0.2, 0.5)
 
+        self.pair_mll = None
+        self.pair_models = None
+        self.pair_partition = None
+
     def fit(
         self,
         timewarping: bool=True,
@@ -104,6 +108,7 @@ class PairingEffectModel(DiffConditionModel):
 
         # Iteration over all the possible partitions of the condition set
         partition_models_pair = []
+        
         for p in tqdm(self.partitions, disable=(not verbose)):
             models, mll = self.gp_pairing_fit(
                 p, 
@@ -591,7 +596,7 @@ class PairingEffectModel(DiffConditionModel):
         #plt.savefig("gene_figures/" + self.gene_name + "_pair_model.svg")
         #plt.tight_layout()
         plt.tight_layout(rect=[0.015,0,1,1])
-        plt.savefig("gene_figures/" + self.gene_name + "_pair_model.jpg", format="jpg")
+        #plt.savefig("gene_figures/" + self.gene_name + "_pair_model.jpg", format="jpg")
         plt.show()
 
     def plot_pairing_effect(
@@ -665,7 +670,7 @@ class PairingEffectModel(DiffConditionModel):
         plt.grid()
         #plt.yticks([-0.5,0,0.5,1])
         plt.tight_layout()
-        plt.savefig("gene_figures/" + self.gene_name + "_pair_eff.jpg", format="jpg")
+        #plt.savefig("gene_figures/" + self.gene_name + "_pair_eff.jpg", format="jpg")
         plt.show()
 
     def plot_kernels(self, sigma, X = None):
@@ -699,7 +704,7 @@ class PairingEffectModel(DiffConditionModel):
         plt.colorbar()
         plt.title("$K_p$")
         plt.tight_layout()
-        plt.savefig("gene_figures/" + self.gene_name + "_k.jpg", format="jpg")
+        #plt.savefig("gene_figures/" + self.gene_name + "_k.jpg", format="jpg")
         plt.show()
 
         return K,K_rep
