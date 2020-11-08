@@ -53,10 +53,24 @@ class DiffConditionModel:
         n_replicates: int,
         models_folder="./models": str,
         hyperparams_iter=5: int,
+        colors=None: list[str],
+        subcolors=None: list[list[str]],
+        repcolors=None: list[str],
+        markers=None: list[str],
     ):
         """
         Arguments:
-            gene_data {pd.DataFrame} -- gene data in a pandas DataFrame format
+            gene_data {pd.DataFrame} -- gene data in a pandas Series format
+                The data format accepted in input is a pandas Series (or one row from a DataFrame).  
+                If coming from a pandas DataFrame, the name of the columns must be organized with 
+                the following structure:
+                    condition_timepoint_replicatenum
+                So the structure is the name of the condition, the time point (without any sort of
+                indication such as "h" is the time is in hours), and then a number the identifies 
+                the replicate from which the data point comes from.
+                The data points need to be already expressed in the unit that one wants to use. 
+                In other words, any sort of transformation on the gene read-counts need to be 
+                applied to the dataset before passing the datapoints to this software.
             gene_name {str} -- the name of the gene that will be diplayed in the plots
             timepoints {np.array} -- list of timepoints used in the gene expression time-series
                 These need to match with the timepoints in the columns name notation 
@@ -70,6 +84,31 @@ class DiffConditionModel:
             models_folder {str} -- path to the folder where the model files will be saved
             hyperparams_iter {int} -- number of times the hyperparameter optimization
                 will be run during the model fit
+            colors {list[str]} -- list of colors in a format accepted by matplotlib.pyplot
+                one for each of the conditions in the dataset, required for the plotting
+                e.g., with 6 conditions
+                    ["#00334e", "#801336", "#12d3cf", "#f18c8e", "k", "r"] 
+                You can find an example of colors for a dataset with 5 conditions and 3 replicates
+                in the Jupyter notebook "notebooks/notebook.ipynb"
+            subcolors {list[list[str]]} -- list of list of colors in a format accepted by matplotlib.pyplot
+                the list must contain one list for each condition
+                the inner list must contain one color for each replicate
+                e.g., 5 conditions with 3 replicates
+                    [
+                        ["#00334e", "#145374", "#5588a3"],
+                        ["#801336", "#c72c41", "#ee4540"],
+                        ["#12d3cf", "#67eaca", "#b0f4e6"],
+                        ["#f18c8e", "#f0b7a4", "#f1d1b5"],
+                        ["#00334e", "#145374", "#5588a3"],
+                    ]
+            repcolors=None {list[str]} -- list of colors in a format accepted by matplotlib.pyplot
+                the list must contain one color for each replicate
+                e.g., with 3 replicates
+                    ["#bfcd7e", "#4592af", "#a34a28"
+            markers=None {list[str]} -- list of markers in a format accepted by matplotlib.pyplot
+                the list must contain one merker for each replicate in the dataset
+                e.g., with 3 replicates
+                    ["o", "x", "*"]
         """
         self.__conditions = conditions
         # we generate here the list of all the possible partitiions
@@ -107,16 +146,10 @@ class DiffConditionModel:
 
         # colors settings to display 
         #self.colors = ["#00334e", "#801336", "#12d3cf", "#f18c8e", "k", "r"]
-        self.__colors = ["#00334e", "#801336", "#12d3cf", "#f18c8e", "k", "r"]
-        self.__subcolors = [
-            ["#00334e", "#145374", "#5588a3"]
-            , ["#801336", "#c72c41", "#ee4540"]
-            , ["#12d3cf", "#67eaca", "#b0f4e6"]
-            , ["#f18c8e", "#f0b7a4", "#f1d1b5"]
-            , ["#00334e", "#145374", "#5588a3"]
-        ]
-        self.__repcolors = ["#bfcd7e", "#4592af", "#a34a28", "#e3c4a8", "#6c5ce7", "#474141"]
-        self.__markers = ["o", "x", "*", "d", "+", "v", "^", "s", "<", "."]
+        self.__colors = colors
+        self.__subcolors = subcolors
+        self.__repcolors = repcolors
+        self.__markers = markers
 
         # number of points to create between timepoint[0] and 
         # timepoints[-1] to visualize the predictions
@@ -215,64 +248,24 @@ class DiffConditionModel:
             )
 
 
-    def __generate_Xnew(self, time_pred, partition):
-        Xnew = np.tile(time_pred, len(partition) * self.__n_replicates)
-
-        Xnew_partition_num = []
-        Xnew_replicate_num = []
-        for i, subset in enumerate(list(partition)):
-            Xnew_partition_num.append(np.repeat(i + 1, len(time_pred) * self.__n_replicates))
-
-            for r in range(self.__n_replicates):
-                Xnew_replicate_num.append(np.repeat(r + 1, len(time_pred)))
-        Xnew_partition_num = np.concatenate(Xnew_partition_num)
-        Xnew_replicate_num = np.concatenate(Xnew_replicate_num)
-
-        Xnew = Xnew.reshape((-1, 1))
-        Xnew_partition_num = Xnew_partition_num.reshape((-1, 1))
-        Xnew_replicate_num = Xnew_replicate_num.reshape((-1, 1))
-
-        Xnew = np.concatenate((Xnew, Xnew_replicate_num), axis=1)
-        return Xnew, Xnew_partition_num, Xnew_replicate_num
-
-
-    def __full_splitted_prediction(self, data, time_pred, gaussian_noise):
-        X = data[["X", "r"]].values
-        y = data[["y"]].values
-        mean_f, var_f, mean_r, var_r = self.__exact_prediction_rep(X, y, time_pred, self.__pair_models.kern
-                                                                   , gaussian_noise, self.__pair_partition)
-
-        lower_interval_f, upper_interval_f = self.__exact_prediction_quantiles(var_f)
-        lower_interval_f = lower_interval_f.flatten()
-        upper_interval_f = upper_interval_f.flatten()
-
-        lower_interval_r, upper_interval_r = self.__exact_prediction_quantiles(var_r)
-        lower_interval_r = lower_interval_r.flatten()
-        upper_interval_r = upper_interval_r.flatten()
-
-        return mean_f, var_f, mean_r, var_r, lower_interval_f, upper_interval_f, lower_interval_r, upper_interval_r
-
-
     @abstractmethod
     def plot(self):
         pass
 
-    def __generate_partition_number(self, partition):
-        partition_num = []
-        for i, subset in enumerate(list(partition)):
-            condition_no = [self.__conditions_dict[condition] for condition in subset]
-            subset_data = self.__gene_data[self.__gene_data['c'].isin(condition_no)]
-            tmp = np.repeat(i + 1, len(subset_data))
-            #tmp = np.repeat(i + 1, len(self.__timepoints) * self.__n_replicates * len(subset))
+    
+    def plot_data(
+        self,
+        timewarping=False: bool,
+        logexpr=False: bool,
+    ):
+        """Utility to plot the data contained in the self.__gene_data attribute
 
-            #print(tmp.shape)
-            #print(len(self.__timepoints), self.__n_replicates, len(subset))
-            partition_num.append(tmp)
-        partition_num = np.concatenate(partition_num)
-        return partition_num
-
-
-    def plot_data(self, timewarping=False, logexpr=False):
+        Args:
+            timewarping (bool, optional): Apply log-timewarping to the timepoint 
+                for the sake of plotting. Defaults to False:bool.
+            logexpr (bool, optional): Apply log-trainsformation log(y+1) to the 
+                gene expression values for the sake of plotting. Defaults to False:bool.
+        """
         data, _, _ = self.get_conditions_data(self.__conditions)
         partition_num = self.__generate_partition_number([[c] for c in self.__conditions])
 
@@ -320,11 +313,7 @@ class DiffConditionModel:
                         marker=self.__markers[r_idx],
                         c=self.__colors[i]
                     )
-            #plt.grid()
-
             plt.tight_layout()
-
-
             plt.xlabel("Time (hours)")
             plt.ylabel("Gene expression (read count)")
             plt.legend(bbox_to_anchor=(0, 1), loc='upper left', ncol=1)
@@ -360,7 +349,46 @@ class DiffConditionModel:
         plt.show()
 
 
-    def __get_conditions_dict(self, conditions):
+    def __generate_partition_number(
+        self,
+        partition: list[list[str]],
+    ):
+        """Utility to generate the the partition number column
+        starting from the data and the partition that we are analysing.
+
+        Args:
+            partition (list[list[str]]): a partition of the condition set
+
+        Returns:
+            np.array: concatenation of the partition numbers for each 
+                timepoint in the data
+        """
+        partition_num = []
+        for i, subset in enumerate(list(partition)):
+            condition_no = [self.__conditions_dict[condition] for condition in subset]
+            subset_data = self.__gene_data[self.__gene_data['c'].isin(condition_no)]
+            tmp = np.repeat(i + 1, len(subset_data))
+            #tmp = np.repeat(i + 1, len(self.__timepoints) * self.__n_replicates * len(subset))
+
+            #print(tmp.shape)
+            #print(len(self.__timepoints), self.__n_replicates, len(subset))
+            partition_num.append(tmp)
+        partition_num = np.concatenate(partition_num)
+        return partition_num
+
+
+    def __get_conditions_dict(
+        self,
+        conditions
+    ):
+        """Mapping conditions to integers starting from 1
+
+        Args:
+            conditions {list["str]}: the list of conditions to map
+
+        Returns:
+            dict: dictionary containing the conditions mapping
+        """
         conditions_dict = {}
         for i, c in enumerate(conditions):
             conditions_dict[c] = i + 1
@@ -368,7 +396,25 @@ class DiffConditionModel:
         return conditions_dict
 
 
-    def __augment_gene_data(self, gene_data):
+    def __augment_gene_data(
+        self,
+        gene_data: pd.Series,
+    ):
+        """Data are transformed in a more efficient structure. From a
+        structure where each point is annotated with condition_timepoint_replicatenum
+        we get a pd.DataFrame with 4 columns:
+            (timepoint, condition, replicatenum, value) 
+        the actual column names will be:
+            (X, c, r, y)
+        This will allow a faster computation during the model selection process.
+
+        Args:
+            gene_data {pd.Series}: pandas dataframe with the gene expression data
+                The data in should be in the format specified in the constructor of this class. 
+
+        Returns:
+            pd.DataFrame: tranformed DataFrame
+        """
         if isinstance(gene_data, pd.DataFrame):
             cols = gene_data.columns
         elif isinstance(gene_data, pd.Series):
@@ -391,21 +437,13 @@ class DiffConditionModel:
         return df
 
 
-    def __get_model_file_name(self, subset, pairing=False):
-        name = self.__models_folder + "/" + self.__gene_name + "/"
-
-        if not os.path.exists(name):
-            os.makedirs(name)
-
-        for condition in subset:
-            name += condition
-        if pairing:
-            name += "_pairing"
-        name += ".pkl"
-        return name
-
-
-    def __delete_models(self):
+    def __delete_models(
+        self
+    ):
+        """Utility to automatically eliminate the model files 
+        generated during the model selection process.
+        The models are eliminated from self.__models_folder
+        """
         for the_file in os.listdir(self.__models_folder):
             file_path = os.path.join(self.__models_folder, the_file)
             try:

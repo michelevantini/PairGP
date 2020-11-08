@@ -820,35 +820,6 @@ class PairingEffectModel(DiffConditionModel):
                 plt.grid()
                 plt.show()
 
-    def __get_conditions_dict(self, conditions):
-        conditions_dict = {}
-        for i, c in enumerate(conditions):
-            conditions_dict[c] = i +1
-
-        return conditions_dict
-
-    def __augment_gene_data(self, gene_data):
-        if isinstance(gene_data, pd.DataFrame):
-            cols = gene_data.columns
-        elif isinstance(gene_data, pd.Series):
-            cols = gene_data.index
-
-        X = []
-        r = []
-        c = []
-        for col_name in cols:
-            condition, t, rep = col_name.split("_")
-            X.append(float(t))
-            r.append(int(rep))
-            c.append(self.__conditions_dict[condition])
-
-        X = np.array(X).reshape((-1,1))
-        r = np.array(r).reshape((-1,1))
-        c = np.array(c).reshape((-1, 1))
-        y = gene_data.values.reshape((-1,1))
-        df = pd.DataFrame(np.concatenate((X, c, r, y), axis=1), columns=["X", "c", "r", "y"]).sort_values(["c", "X"])
-        return df
-
     def __get_model_file_name(self, subset, pairing=False):
         name = self.__models_folder + "/" + self.__gene_name + "/"
 
@@ -861,14 +832,4 @@ class PairingEffectModel(DiffConditionModel):
             name += "_pairing"
         name += ".pkl"
         return name
-
-    def __delete_models(self):
-        for the_file in os.listdir(self.__models_folder):
-            file_path = os.path.join(self.__models_folder, the_file)
-            try:
-                if os.path.isfile(file_path):
-                    os.unlink(file_path)
-                elif os.path.isdir(file_path): shutil.rmtree(file_path)
-            except Exception as e:
-                print(e)
 
