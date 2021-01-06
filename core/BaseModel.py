@@ -2,6 +2,7 @@
 import os
 import pickle
 import shutil
+from typing import List
 
 # EXTERNAL IMPORT
 from tqdm import tqdm
@@ -122,10 +123,25 @@ class BaseModel(DiffConditionModel):
 
     def gp_base_fit(
         self,
-        kernel,
-        subset,
-        k_prior=False
+        kernel: GPy.kern.Kern,
+        subset: List[List[str]],
+        k_prior: bool=False,
     ):
+        '''Given a kernel and subset of conditions, this
+        function fit the GP regression model on the specified subset
+        of gene expression data.
+
+        Args:
+            kernel (GPy.kern.Kern): kernel for the GP regression model
+            subset (List[List[str]]): subset of the condition set to be
+                considered for the fit
+            k_prior (bool=False): if True, hyperpriors distributions are
+                used in the fitting process
+        
+        Returns:
+            (GPy.models.GPRegression, float): (fitted model, marginal likelihood)
+        
+        '''
         data, _, _ = self.get_conditions_data(subset)#, normalize=True)
 
         X = data[["X"]]
@@ -147,7 +163,16 @@ class BaseModel(DiffConditionModel):
         return gp, score
 
     
-    def generate_base_kernel(self):
+    def generate_base_kernel(
+        self
+    ):
+        ''' Generate a Radial basis function kernel
+        to be used for the training of the model.
+
+        Returns:
+            GPy.kern.RBF: a Radial basis function kernel
+        
+        '''
         kernel = GPy.kern.RBF(
             input_dim=1,
             useGPU=self.use_gpu,
@@ -161,6 +186,13 @@ class BaseModel(DiffConditionModel):
         self,
         title=None
     ):
+        '''Plot the results of the fitting of the Base model
+
+        Args:
+            title (str): title for the plot. If None a standard
+                title containing the name of the gene is used
+        '''
+
         time_pred = self.get_time_pred()
         time_predN = time_pred.reshape((-1, 1))
 
@@ -262,8 +294,19 @@ class BaseModel(DiffConditionModel):
     def get_model_file_name(
         self,
         subset,
-        pairing=False
     ):
+        '''We define with this function the 
+        folder structure and naming convention for the 
+        model files.
+
+        Args:
+            subset (List[List[str]]): the subset of the condition set
+                on which the model has been fit            
+
+        Returns:
+            str: model file path
+        
+        '''
         name = self.models_folder + "/" + self.gene_name + "/"
 
         if not os.path.exists(name):
@@ -271,8 +314,6 @@ class BaseModel(DiffConditionModel):
 
         for condition in subset:
             name += condition
-        if pairing:
-            name += "_pairing"
         name += ".pkl"
         return name
 

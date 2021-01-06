@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 import pickle
+from typing import List
 
 def time_warping(t):
     '''
@@ -64,16 +65,26 @@ def load_gp_model(file_name):
     return gp
 
 
-def get_partition_mat(partition_num, get_specular=False):
+def get_partition_mat(
+    partition_num,
+    get_specular=False
+):
     subset_idx = np.unique(partition_num)
     subset_mat_list = []
     specular_mat_list = []
     for idx in subset_idx:
         subset_idx_arr = partition_num * (partition_num == idx)
-        subset_mat = np.repeat(subset_idx_arr.reshape(-1, 1), len(subset_idx_arr), axis=1)
+        subset_mat = np.repeat(
+            subset_idx_arr.reshape(-1, 1),
+            len(subset_idx_arr),
+            axis=1
+        )
         subset_bool_mat = subset_mat == subset_mat.T
 
-        specular = np.logical_xor(subset_mat, subset_bool_mat)*(1-subset_bool_mat)
+        specular = np.logical_xor(
+            subset_mat,
+            subset_bool_mat,
+        )*(1-subset_bool_mat)
         specular_mat_list.append(specular)
 
         res = subset_bool_mat * subset_mat
