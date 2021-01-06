@@ -60,8 +60,8 @@ class DiffConditionModel:
         markers: List[str]=None,
     ):
         """
-        Arguments:
-            gene_data {pd.DataFrame} -- gene data in a pandas Series format
+        Args:
+            gene_data (pd.DataFrame): gene data in a pandas Series format
                 The data format accepted in input is a pandas Series (or one row from a DataFrame).  
                 If coming from a pandas DataFrame, the name of the columns must be organized with 
                 the following structure:
@@ -72,26 +72,26 @@ class DiffConditionModel:
                 The data points need to be already expressed in the unit that one wants to use. 
                 In other words, any sort of transformation on the gene read-counts need to be 
                 applied to the dataset before passing the datapoints to this software.
-            gene_name {str} -- the name of the gene that will be diplayed in the plots
-            timepoints {np.array} -- list of timepoints used in the gene expression time-series
+            gene_name (str): the name of the gene that will be diplayed in the plots
+            timepoints (np.array): list of timepoints used in the gene expression time-series
                 These need to match with the timepoints in the columns name notation 
                 for gene_data
-            conditions {list} -- list of the conditions (or tretments) in the data.
+            conditions (list): list of the conditions (or tretments) in the data.
                 The conditions need to be listed with the same name used in the columns name 
                 notation for gene_data
-            n_replicates {int} -- total number of replicates used in gene_data.
+            n_replicates (int): total number of replicates used in gene_data.
                 These need to match with the number of replicates reported in the columns
                 name notation for gene_data
-            models_folder {str} -- path to the folder where the model files will be saved
-            hyperparams_iter {int} -- number of times the hyperparameter optimization
+            models_folder (str): path to the folder where the model files will be saved
+            hyperparams_iter (int): number of times the hyperparameter optimization
                 will be run during the model fit
-            colors {List[str]} -- list of colors in a format accepted by matplotlib.pyplot
+            colors (List[str]): list of colors in a format accepted by matplotlib.pyplot
                 one for each of the conditions in the dataset, required for the plotting
                 e.g., with 6 conditions
                     ["#00334e", "#801336", "#12d3cf", "#f18c8e", "k", "r"] 
                 You can find an example of colors for a dataset with 5 conditions and 3 replicates
                 in the Jupyter notebook "notebooks/notebook.ipynb"
-            subcolors {List[List[str]]} -- list of list of colors in a format accepted by matplotlib.pyplot
+            subcolors (List[List[str]]): list of list of colors in a format accepted by matplotlib.pyplot
                 the list must contain one list for each condition
                 the inner list must contain one color for each replicate
                 e.g., 5 conditions with 3 replicates
@@ -102,11 +102,11 @@ class DiffConditionModel:
                         ["#f18c8e", "#f0b7a4", "#f1d1b5"],
                         ["#00334e", "#145374", "#5588a3"],
                     ]
-            repcolors=None {List[str]} -- list of colors in a format accepted by matplotlib.pyplot
+            repcolors=None (List[str]): list of colors in a format accepted by matplotlib.pyplot
                 the list must contain one color for each replicate
                 e.g., with 3 replicates
                     ["#bfcd7e", "#4592af", "#a34a28"
-            markers=None {List[str]} -- list of markers in a format accepted by matplotlib.pyplot
+            markers=None (List[str]): list of markers in a format accepted by matplotlib.pyplot
                 the list must contain one merker for each replicate in the dataset
                 e.g., with 3 replicates
                     ["o", "x", "*"]
@@ -201,8 +201,8 @@ class DiffConditionModel:
         This function also applies the proper transformation to the data
         
         Args:
-            subset {list} -- subset of conditions to filter
-            normalize {bool} -- whether to normalize the data or nott
+            subset (list): subset of conditions to filter
+            normalize (bool): whether to normalize the data or nott
         
         Returns:
             (pd.DataFrame, float, float): normalized dataset, mean and variance 
@@ -251,6 +251,10 @@ class DiffConditionModel:
 
     @abstractmethod
     def plot(self):
+        '''
+            Each class inheriting from DifConditionModel
+            needs to implement a method to visualize the model fit
+        '''
         pass
 
     
@@ -385,7 +389,7 @@ class DiffConditionModel:
         """Mapping conditions to integers starting from 1
 
         Args:
-            conditions {List["str]}: the list of conditions to map
+            conditions (List["str]): the list of conditions to map
 
         Returns:
             dict: dictionary containing the conditions mapping
@@ -410,7 +414,7 @@ class DiffConditionModel:
         This will allow a faster computation during the model selection process.
 
         Args:
-            gene_data {pd.Series}: pandas dataframe with the gene expression data
+            gene_data (pd.Series): pandas dataframe with the gene expression data
                 The data in should be in the format specified in the constructor of this class. 
 
         Returns:
