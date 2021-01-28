@@ -338,15 +338,15 @@ class PairingEffectModel(DiffConditionModel):
         K_XnewX = full_kern.K(
             X,
             X2=Xnew,
-            X2_subset_num=Xnew_partition_num,
+            X2_partition_num=Xnew_partition_num,
             X2_rep_num=Xnew_replicate_num
         )
         K_XnewXnew = full_kern.K(
             Xnew,
             X2=Xnew,
-            X2_subset_num=Xnew_partition_num,
+            X2_partition_num=Xnew_partition_num,
             X2_rep_num=Xnew_replicate_num,
-            X_subset_num=Xnew_partition_num,
+            X_partition_num=Xnew_partition_num,
             X_rep_num=Xnew_replicate_num
         )
 
@@ -394,15 +394,15 @@ class PairingEffectModel(DiffConditionModel):
         K_XnewX, Krep_XnewX = full_kern.compute_K_Krep(
             X,
             X2=Xnew,
-            X2_subset_num=Xnew_partition_num,
+            X2_partition_num=Xnew_partition_num,
             X2_rep_num=Xnew_replicate_num
         )
         K_XnewXnew, Krep_XnewXnew = full_kern.compute_K_Krep(
             Xnew,
             X2=Xnew,
-            X2_subset_num=Xnew_partition_num,
+            X2_partition_num=Xnew_partition_num,
             X2_rep_num=Xnew_replicate_num,
-            X_subset_num=Xnew_partition_num,
+            X_partition_num=Xnew_partition_num,
             X_rep_num=Xnew_replicate_num
         )
 

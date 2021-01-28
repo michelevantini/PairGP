@@ -2,25 +2,44 @@ import pandas as pd
 import numpy as np
 import pickle
 from typing import List
+import GPy
 
-def time_warping(t):
-    '''
-    Time warping function
-    :param t: timepoints vector
-    :return: warped timepoints
-    '''
+def time_warping(
+    t
+):
+    """log-Time warping function
 
+    Args:
+        t (np.array): timepoints vector
+    
+    Returns: 
+        (np.array): warped timepoints
+    """
     return np.log(t)
 
-def log_plus_one(x):
+def log_plus_one(
+    x
+):
+    """Log transformation used as preprocessing
+    for the gene expression values
+
+    Args:
+        t (np.array): gene expressions vector
+
+    Returns:
+        (np.array): log preprocessed gene expressions
+    """
     return np.log(x+1)
 
 def partition(collection):
-    '''
-    Produce all the possible partitions of a set of items
-    :param collection: an iterable item 
-    :return: all the possible partitions of collection
-    '''
+    """Produce all the possible partitions of a set of items
+    
+    Args:
+        collection (List): list of items
+    
+    Returns: 
+        (List): all the possible partitions of collection
+    """
     if len(collection) == 1:
         yield [ collection ]
         return
@@ -35,12 +54,15 @@ def partition(collection):
 
 
 def get_label(subset):
-    '''
-    Extracting the label of the conditions 
+    """Extracting the label of the conditions 
     present in a subset of a partition
-    :param subset: subset 
-    :return: string of comma concatenated conditions
-    '''
+    
+    Args:
+        subset: subset 
+    
+    Returns: 
+        string of comma concatenated conditions
+    """
     label = ""
     i = 0
     for condition in subset[:-1]:
@@ -53,22 +75,87 @@ def get_label(subset):
     return label
 
 
-def save_gp_model(gp, file_name):
+def save_gp_model(
+    gp: GPy.models.GPRegression,
+    file_name: str,
+):
+    """Utility to save a GPy model as a pikle file
+
+    Args:
+        gp (GPy.models.GPRegression): the GPy model to be saved
+        file_name (str): a file path 
+    """
     file = open(file_name, "wb")
     pickle.dump(gp, file)
     #gp.save_model(name)
 
 
-def load_gp_model(file_name):
+def load_gp_model(
+    file_name:str
+):
+    """Utility to load a GPy model saved as pickle
+
+    Args:
+        file_name (str): model file path
+
+    Returns:
+        GPy.models.GPRegression: the pickled GPy model
+    """
     file = open(file_name, "rb")
     gp = pickle.load(file)
     return gp
 
 
 def get_partition_mat(
-    partition_num,
-    get_specular=False
+    partition_num: np.array,
+    get_specular: bool=False,
 ):
+    """Assuming that the N samples are organized
+    in the data as in partition_num, then this function returns
+    two lists of matrices. The lists contain one matrix for each
+    partition number (numpy.unique(partition_num)):
+        1) a matrix with ones where the partition numbers match 
+        2) a matrix with ones where the partition numbers do not match,
+          but only looking at the the rows where they match
+
+    e.g., partitio_num = [1,2,3,1,2,3]
+    we assume to put this list matching with the rows and columns 
+    of a matrix:
+          [1,2,3,1,2,3]
+       [1,
+        2,
+        3,
+        1,
+        2,
+        3]
+    then the first elements for the two lists are the following
+    1) where they match:
+        [[1 0 0 1 0 0]
+         [0 0 0 0 0 0]
+         [0 0 0 0 0 0]
+         [1 0 0 1 0 0]
+         [0 0 0 0 0 0]
+         [0 0 0 0 0 0]]
+    2) where they don't, but looking only at the rows where they match:
+        [[0 1 1 0 1 1]
+         [0 0 0 0 0 0]
+         [0 0 0 0 0 0]
+         [0 1 1 0 1 1]
+         [0 0 0 0 0 0]
+         [0 0 0 0 0 0]]
+    
+    This is a utility for the centered kernel calculations.
+          
+
+    Args:
+        partition_num (np.array): array containing the partition number
+            for each sample in the gene expression dataset
+        get_specular (bool, optional): to get both the the matrices lists (True)
+        or only the list number 1), as explained above (False) . Defaults to False.
+
+    Returns:
+        (np.array, np.array): the resulting matrices lists
+    """
     subset_idx = np.unique(partition_num)
     subset_mat_list = []
     specular_mat_list = []
