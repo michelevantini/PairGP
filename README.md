@@ -10,6 +10,7 @@ To run the PairGP software we suggest to create a Python virtual environment and
 ```
 python3 -m venv pairgp_env
 source pairgp_env/bin/activate
+pip install --upgrade pip
 pip install -r requirements/base.txt
 ```
 
@@ -19,4 +20,7 @@ pip install jupyterlab
 jupyter lab
 
 ```
+
+## Usage
+You can find a step-by-step tutorial on how to use the PairGP software and how to prepare your data in the jupyter notebook `notebooks/notebook.ipynb`.
 
